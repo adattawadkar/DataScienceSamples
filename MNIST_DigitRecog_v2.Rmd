@@ -1,0 +1,522 @@
+---
+title: "One small step for image recognition, one giant leap for mankind: handwritten digits recognition"
+author: "DSB EA - Group 3"
+output:
+  html_document:
+    css: ../AnalyticsStyles/default.css
+    theme: paper
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document:
+    includes:
+      in_header: ../AnalyticsStyles/default.sty
+---
+<!-- **Note:** Assuming the working directory is "MYDIRECTORY/INSEADAnalytics" (where you have cloned the course material), you can create an html file by running in your console the command rmarkdown::render("CourseSessions/Sessions23/FactorAnalysisReading.Rmd") -->
+
+```{r setuplibraries, echo=FALSE, message=FALSE}
+
+source("../AnalyticsLibraries/library.R")
+source("../AnalyticsLibraries/heatmapOutput.R")
+
+opts_knit$set(progress=FALSE, verbose=FALSE)
+opts_chunk$set(echo=FALSE, fig.align="center", fig.width=10, fig.height=6.5)
+options(knitr.kable.NA = '')
+```
+
+Project team: DATTAWADKAR Anay <anay.dattawadkar@insead.edu>; GUO Tingting <tingting.guo@insead.edu>; MELMAN Ilia <ilia.melman@insead.edu>;  WEI Anais <anais.wei@insead.edu>;  WIRAWAN Christian <christian.wirawan@insead.edu>; ZHAN Chris <chris.zhan@insead.edu>
+
+Image recognition is a rapidly-evolving AI technology with numerous current and future use cases. From facial recognition to autonomous driving, image processing is an essential step for a machine to understand the world we are living.  
+
+The project is our exploratory step towards image recognition usage through simple data science models. We wish to get a glimpse through the eyes of the machine, understand the process to tackle the problem, and discuss the potentials and challenges through hands-on classification models. 
+
+Handwritten digits data is based on the known MNIST dataset: http://yann.lecun.com/exdb/mnist/
+
+
+# 1. Business applications of image recognition
+
+Image recognition has extensive usage across various industries. Its current application includes facial recognition,  image search, object recognition, pattern detection, biometrics identification, augmented reality, and many more scenarios. 
+
+As a result, image recognition can be applied across  a broad range of industries including manufacturing, autonomous driving, medial, banking, etc ... 
+
+**Digit recognition** 
+
+OCR (Optical Character Recognition) is one of the simplest but most powerful  usages of image recognition. It has been used to automate manual processes that are currently not digitalized. 
+
+Documents, invoices, bank cheques, and envelopes can be converted into a machine-readable format, which becomes an important step in process automation for companies. 
+
+With this exercise, our objective is to adopt the data modeling process to classify digit images into the correct numbers for efficient processing in the OCR application. The project serves as our first step in exploring image recognition applications, which can be further extended into alphabet conversion, pattern recognition, and advanced object detection.
+
+
+<hr>\clearpage
+
+# 2. How does the machine see an image?  
+
+## 2.1 Turn image into data stream
+
+Computer screens represent images by splitting each pixel into a combination of 3 different colors. Red, Green, and Blue can be mixed to create almost any color in the spectrum. Computers can “read” images by converting their component pixels into arrays of red, green, and blue values. These pixels are then further split into 3-D arrays of code; models can then apply machine learning techniques to “recognize” and “classify” these images. 
+
+
+## 2.2 The Dataset 
+
+We use the known MNIST dataset to train and test our models:
+MNIST dataset contains
+ 1. 60,000 handwritten digit training dataset
+ 2. 10,000 handwritten digit test dataset
+
+The training dataset(csv) is a matrix of [60000, 785] numeric values.
+The test dataset(csv) is a matrix of [10000, 785] numeric values.
+
+Each row within the dataset represents one image of a handwritten digit of 28 * 28 pixels (784):
+
+ *X1 = Y: the value of the single-digit, from 0 to 9*
+
+ *X2 - X785: values representing the brightness of each pixel, from 0 (Black) to 255 (White)*
+
+An example of reshaping one row of [1,785] to a corresponding image matrix of [28,28] of handwritten '9' can be viewed in the case below 
+
+***
+
+Let's try to load the first 100 training data!
+
+```{r Initial Setup, echo=FALSE, message=FALSE}
+# Load the data
+
+train_file_name="mnist_train" 
+test_file_name="mnist_test"
+
+# Please enter the minimum number below which you would like not to print - this makes the readability of the tables easier. Default values are either 10e6 (to print everything) or 0.5. Try both to see the difference.
+#MIN_VALUE=0.5
+
+# Please enter the maximum number of observations to show in the report and slides 
+# (DEFAULT is 15. If the number is large the report and slides may not be generated - very slow or will crash!!)
+#max_data_report = 10
+
+train_data_raw <- read.csv(paste0("data/", train_file_name, ".csv"), header = FALSE, nrow = 30000)
+test_data_raw <- read.csv(paste0("data/", test_file_name, ".csv"), header = FALSE)
+
+#Explore some training data
+barplot(table(train_data_raw[1:100,1]), col = rainbow(10,0.5), main = '# of digits in the first 100 training data')
+
+
+```
+
+***
+The first image looks like this in pixels:
+
+```{r display pixel data}
+
+m1<- matrix(data.matrix(train_data_raw[1,-1]), nrow=28, byrow =TRUE)
+knitr::kable(m1)
+
+```
+
+***
+Display the first 36 images visually.
+
+
+```{r plot image data, echo=FALSE, message=FALSE}
+
+plotTrain <- function(images, dataset){
+  op <- par(no.readonly=TRUE)
+  x <- ceiling(sqrt(length(images)))
+  par(mfrow=c(x, x), mar=c(.1, .1, .1, .1))
+  
+  for (i in images){ #reverse and transpose each matrix to rotate images
+    m <- matrix(data.matrix(dataset[i,-1]), nrow=28, byrow=TRUE)
+    m <- apply(m, 2, rev)
+    image(t(m),col=grey.colors(255), axes=FALSE)
+    text(0.05, 0.2, col="white", cex=1.2, dataset[i, 1])
+  }
+  par(op) #reset the original graphics parameters
+}
+
+# Display 36 images in 'image' format
+plotTrain(1:36, train_data_raw)
+#plotTrain (1:36, test_data_raw)
+
+```
+
+
+
+# 3. Classification models
+After exploring the data structure and visualization, we decide to apply a few simple models to train the machine to read the digits.  
+
+> Classification models
+  * multiclass logistic classification
+  * Random Forest
+  * XGboost
+  * neural networks
+
+## 3.1 Multi-nominal logistic 
+
+Firstly, we train on 30,000 single digit images with multi-nominal logistic model.
+
+```{r training data by multinom, echo=FALSE, message=FALSE}
+
+# install library for Multinominal Logistic Regression
+library(Matrix)
+library(nnet)
+
+# Name Y variable as "Label"
+colnames(train_data_raw)[1] <- "Label"
+train_data_raw$Label = as.factor(train_data_raw$Label)
+
+#confirm no missing data
+#sum(is.na(train_data_raw))
+
+# normalize X variables into [0,1]
+train_data <- train_data_raw
+train_data[,-1] <-train_data[,-1]/255
+
+# Original training set is too big, use 20,000 for training
+# set.seed(424)
+# idx = sample(1:nrow(train_data), size = 20000)
+# train_data_sample = train_data[idx,]
+
+logistic_model <-multinom(Label ~ ., data = train_data, maxit = 200, MaxNWts = 8000)
+#logistic_model$AIC
+#Prediction
+```
+***
+Training performance: 
+
+```{r training performance, echo=FALSE, message=FALSE}
+
+#TEMP: accuracy on training data
+train_data_sample_r <- train_data
+train_data_sample_r$pred <-predict(logistic_model,train_data_sample_r, type = "class")
+confmat_train <- table ('Actual Class (training)' = train_data_sample_r$Label, 'Predicted Class (training)' = train_data_sample_r$pred)
+confmat_train
+accuracy_train <- sum(diag(confmat_train))/sum(confmat_train)
+cat ("Accuracy achieved on the training data set is: ", accuracy_train*100, "%\n")
+
+```
+
+```{r echo=FALSE, message=FALSE}
+## Plot ERROR images, dataset = data.frame type, with X values normalized to [0,1]
+
+plotError <- function(images, dataset){
+  op <- par(no.readonly=TRUE)
+  x <- ceiling(sqrt(length(images)))
+  par(mfrow=c(x, x), mar=c(.1, .1, .1, .1))
+  
+  dataset <- dataset[,-1]
+  col = ncol(dataset)
+  dataset[,-col] <- dataset[,-col]*255
+  for (i in images){ #reverse and transpose each matrix to rotate images
+    m <- matrix(data.matrix(dataset[i,-col]), nrow=28, byrow=TRUE)
+    m <- apply(m, 2, rev)
+    image(t(m),col=grey.colors(255), axes=FALSE)
+    text(0.05, 0.2, col="white", cex=1.2, dataset[i, col])
+  }
+  par(op) #reset the original graphics parameters
+}
+
+cat ("Let's see some error examples: handwritten 3 which are predicted as 5. \n")
+
+error_train <-train_data_sample_r %>% filter(Label == '3' & pred == '5')
+plotError(1:36, error_train)
+
+```
+***
+Then, we use the model to recognize digits from the 10,000-digit testing dataset:  
+
+
+```{r test result}
+
+#process test data
+colnames(test_data_raw)[1] <- "TestLabel"
+test_data_raw$TestLabel = as.factor(test_data_raw$TestLabel)
+test_data <- test_data_raw
+test_data[,-1] <- test_data[,-1]/255
+
+test_data$pred <-predict(logistic_model, test_data, type = "class")
+confmat <- table ('Actual Class' = test_data$TestLabel, 'Predicted Class' = test_data$pred)
+confmat
+laccuracy <- sum(diag(confmat))/sum(confmat)
+cat ("Accuracy achieved on the test data set is: ", laccuracy*100, "%\n")
+
+
+## Plot ERROR images of test, dataset = data.frame type, with X values normalized to [0,1]
+
+cat ("Let's see some error examples within the test results: handwritten 4 which are predicted as 9. \n")
+error_test <- test_data %>% filter(TestLabel == '4' & pred == '9')
+
+plotError(1:32, error_test)
+
+```
+
+## 3.2 Random Forest 
+
+```{r warning = F, echo = F, include = F}
+library(randomForest)
+library(data.table)
+library(caTools)
+library(caret)
+library(randomForest)
+library(xgboost)
+
+digit <- fread("Data/mnist_train.csv")
+digit_test <- fread("Data/mnist_test.csv")
+
+names(digit)[1] <- "label"
+names(digit_test)[1] <- "label"
+
+digit$label <- factor(digit$label)
+digit_test$label <- factor(digit_test$label)
+
+#set.seed(1234)
+#split <- sample.split(digit$label, SplitRatio = 0.8)
+#train <- subset(digit, split == T)
+#cv <- subset(digit, split == F)
+
+```
+
+***
+
+```{r echo=FALSE, message=FALSE}
+set.seed(4)
+rf.model <- randomForest(label ~ ., data = digit, ntree = 100, nodesize = 50)
+#rf.predict <- predict(rf.model, cv)
+rf.predict <- predict(rf.model, digit_test)
+
+print(rf.cm <- confusionMatrix(rf.predict, digit_test$label))
+
+print(paste("Accuracy of Random Forest:", round(rf.cm$overall[1], 4)))
+
+```
+
+
+***
+## 3.3 XGBoost
+
+```{r warning = F, include = F, echo = F}
+digit <- fread("Data/mnist_train.csv")
+digit_test <- fread("Data/mnist_test.csv")
+
+names(digit)[1] <- "label"
+names(digit_test)[1] <- "label"
+#digit$label <- factor(digit$label)
+
+set.seed(1234)
+split <- sample.split(digit$label, SplitRatio = 0.8)
+train <- subset(digit, split == T)
+cv <- subset(digit, split == F)
+
+```
+
+```{r}
+
+# convert every variable to numeric, even the integer variables
+xgb_train <- as.data.frame(lapply(digit, as.numeric))
+#cv <- as.data.frame(lapply(cv, as.numeric))
+xgb_test <- as.data.frame(lapply(digit_test, as.numeric))
+
+# convert data to xgboost format
+data.train <- xgb.DMatrix(data = data.matrix(xgb_train[, 2:ncol(xgb_train)]), label = xgb_train$label)
+data.test <- xgb.DMatrix(data = data.matrix(xgb_test[, 2:ncol(xgb_test)]), label = xgb_test$label)
+
+watchlist <- list(train  = data.train, test = data.test)
+
+parameters <- list(
+    # General Parameters
+    booster            = "gbtree",          # default = "gbtree"
+    silent             = 0,                 # default = 0
+    # Booster Parameters
+    eta                = 0.3,               # default = 0.3, range: [0,1]
+    gamma              = 0,                 # default = 0,   range: [0,∞]
+    max_depth          = 6,                 # default = 6,   range: [1,∞]
+    min_child_weight   = 1,                 # default = 1,   range: [0,∞]
+    subsample          = 1,                 # default = 1,   range: (0,1]
+    colsample_bytree   = 1,                 # default = 1,   range: (0,1]
+    colsample_bylevel  = 1,                 # default = 1,   range: (0,1]
+    lambda             = 1,                 # default = 1
+    alpha              = 0,                 # default = 0
+    # Task Parameters
+    objective          = "multi:softmax",   # default = "reg:linear"
+    eval_metric        = "merror",
+    num_class          = 10
+    )
+
+xgb.model <- xgb.train(parameters, data.train, nrounds = 10, watchlist)
+xgb.predict <- predict(xgb.model, data.test)
+print(xgb.cm <- confusionMatrix(factor(xgb.predict,levels = 1:10), factor(xgb_test$label,levels=1:10)))
+      
+#XGBoost cross validation with multi-class   
+#cross_val <- xgb.cv(data = dtrain, nrounds = 100, nthread = 2, nfold = 5, metrics = list("rmse","auc"),                 max_depth = 3, eta = 1, objective = "multi:softprob")
+
+
+print(paste("Accuracy of XGBoost is:", round(xgb.cm$overall[1], 4)))
+
+```
+
+
+## 3.4 Neural Networks
+
+```{r warning = FALSE, echo=FALSE, message=FALSE}
+
+# The initial installation is a bit tricky, use the code below for the first time; after that, pacman
+if("pacman" %in% rownames(installed.packages()) == FALSE) {install.packages("pacman")} # Check if you have universal installer package, install if not
+pacman::p_load("caret","partykit","ROCR","lift","rpart","e1071")
+
+
+#devtools::install_github("rstudio/reticulate")
+
+#install.packages("tensorflow")
+library(tensorflow)
+#install_tensorflow()
+#install_tensorflow(version = "1.12")
+tf$constant("Hellow Tensorflow") ## a simple way to check if it installed correctly
+
+#install.packages("keras")
+library(keras)
+#install_keras()
+
+
+pacman::p_load("tensorflow", "keras")
+
+training<-fread("Data/mnist_train.csv")
+testing<-fread("Data/mnist_test.csv")
+
+
+# Preprocessing data for inputting into Keras
+# Tensors are matrices... hence the input data has to be in a form of a matrix
+
+x_train <- data.matrix(training[,-1]) #matrix of features ("X variables") for training; remove the "default_0" column number 25
+y_train <- training$V1 #target vector ("Y variable") for training 
+
+x_test <- data.matrix(testing[,-1]) #matrix of features ("X variables") for testing; remove the "default_0" column number 25
+y_test <- testing$V1 #target vector ("Y variable") for testing
+
+x_train <- array_reshape(x_train, c(nrow(x_train), 784)) #Keras interprets data using row-major semantics (as opposed to R's default column-major semantics). Hence need to "reshape" the matrices 
+x_test <- array_reshape(x_test, c(nrow(x_test), 784))
+
+# final data preparation steps: scaling for X and converting to categorical for Y
+
+x_train <- x_train/255
+x_test <- x_test/255
+
+y_train <- to_categorical(y_train, 10)
+y_test <- to_categorical(y_test, 10)
+
+#
+# Defining the neural network model architecture: layers, units, activations. 
+#
+
+# common kinds of layers: https://keras.io/layers/about-keras-layers/
+
+# dense -- connect to each neuron
+# dropout -- connect to each neuron with some probability 
+# convolution -- foundation of computer vision/perception 
+# recurrent -- foundation of time-dependent modeling (text, time-series, etc.) Wekaer than LSTM
+# LSTM -- long short-term memory 
+# flatten/embedding/ -- utility layers: particular kinds of data preparation 
+
+# common kinds of activations: https://keras.io/activations/
+# relu -- piece-wise linear 
+# sigmoid, tanh -- S-shaped 
+# softmax -- normalization to probabilities using exp/sum(exp) transform [like in logistic regression]
+
+
+model <- keras_model_sequential() 
+
+bs <- 512 #set the batch size
+repetition <- 30
+
+model %>%
+  layer_flatten() %>%
+  layer_dense(units = bs, activation = 'relu', input_shape = c(784)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = bs/2, activation = 'relu') %>%
+  layer_dropout(rate = 0.2) %>%
+  layer_dense(units = 10, activation = 'softmax')
+
+#
+# Compiling the model 
+#
+
+# common loss functions: https://keras.io/losses/
+# mean_absolute_percentage_error, mean_absolute_error -- for continuous quantities
+# binary_crossentropy, categorical_crossentropy, sparse_categorical_crossentropy -- for events (binary, multinomial)
+
+# common optimizers: https://keras.io/optimizers/
+# adam -- commonly used
+# SGD -- "stochastic gradient descent"
+
+# common metrics: https://keras.io/metrics/ 
+# accuracy, mae, mape 
+
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = 'adam',
+  metrics = c('accuracy')
+)
+
+# Training / "fitting" the model
+
+history <- model %>% fit(
+  x_train, y_train, # on what data to train
+  epochs = repetition, # how many repetitions to have
+  batch_size = bs, # how many datapoints are fed to the network at a time
+  validation_split = 0.2  # percentage of training data to keep for cross-validation
+)
+
+#summary(model)
+
+plot(history)
+
+model %>% evaluate(x_test, y_test) # apply the model to testing data
+
+pred <- model %>% predict_classes(x_test)  # predict the digits
+table(Predicted = pred, Actual = testing$V1) # show the confusion matrix
+
+#print the confusion matrix to CSV
+
+pred_matrix <- table(Predicted = pred, Actual = testing$V1) 
+
+
+
+```
+
+## 3.5 Compare results
+
+After fine-tuning the parameters, the models yield the following accuracy levels with the following parameters:
+
+***
+
+
+Model           | Accuracy      | Parameters
+--------------- | ------------- | -----------------------------------------------------------
+Multi-Logistics | 0.9086        |  
+Random Forest   | 0.9568        | trees = 2000, nodesize = 50
+XGBoost         | 0.9426        | all default parameters, nrounds = 100
+Neural Network  | 0.9813        | batch size = 512, repetition = 30
+
+
+***
+The difference between multi-nominal logistic and the other 3 is significant in this case. Neural Nets outperform it significantly. But when it comes to Random Forest and XGBoost, there is no significant difference. One reason for this might be the small amount of data taken into account while training the models. 
+
+# 4. Challenges of image recognition 
+
+Despite great advances, today’s models still face significant limitations, and there is a long way to go
+
+## 4.1 Computers lack “common sense”
+
+Computers do not know when to say "I don't know". As such, even when presented with spurious data, the algorithm will attempt to make a prediction based on its training. This “overconfidence” can have inaccurate/comical results
+
+## 4.2 Difficulties with model generalization
+
+Models are trained and evaluated by randomly splitting data into “training” and “testing”. Real-world data can differ in viewing angles, scene configurations, camera quality, and other factors. When applied to circumstances beyond their training, models become increasingly inaccurate. 
+
+## 4.3 Potential malicious attacks
+
+People have been able to “fool” image recognition models by using carefully-constructed “noise”. So-called “adversarial attacks” are model-agnostic, enabling easy  “transferability” across a range of algorithms and use cases. This raises significant security concerns. 
+
+## 4.4 Comprehensive scene understanding
+
+Algorithms today can identify objects & groups within a scene (perception). However, they struggle to understand object relationships (what is happening). As such, they cannot yet form a cognitive understanding of the physical world.
+
+
+
